@@ -34,7 +34,7 @@ management:
 eureka:
   client:
     serviceUrl:
-      defaultZone: http://localhost:8761/eureka/
+      defaultZone: http://wsws0521:123@localhost:8761/eureka/ # 使用4.7的eureka
   instance:
     prefer-ip-address: true # 注册自己的ip到Eureka,否则是自己的OS-hostname
     metadata-map:
