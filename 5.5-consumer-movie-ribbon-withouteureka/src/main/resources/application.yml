@@ -1,0 +1,13 @@
+server:
+  port: 8010
+
+user:
+  userServiceUrl: http://localhost:8000/
+
+spring:
+  application:
+    name: microservice-consumer-movie # 4.5 注册到Eureka Server显示的名称
+
+microservice-provider-user:
+  ribbon:
+    listOfServers: localhost:8000, localhost:8001

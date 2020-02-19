@@ -4,12 +4,12 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>cn.vincent48</groupId>
-    <artifactId>4.8-consumer-movie-understanding-metadata</artifactId>
+    <groupId>cn.vincent54</groupId>
+    <artifactId>5.4-consumer-movie-ribbon-customizing-properties</artifactId>
     <version>1.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>4.8-consumer-movie-understanding-metadata</name>
+    <name>5.4-consumer-movie-ribbon-customizing-properties</name>
     <url>http://maven.apache.org</url>
 
     <!-- 引入spring boot依赖 -->
