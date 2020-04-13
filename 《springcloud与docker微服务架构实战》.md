@@ -1,5 +1,8 @@
 # 《springcloud与docker微服务架构实战》
-
+> 使用parent统一管理版本
+>> 就要确保dependency在所配maven仓库中有对应版本
+>>> 比如1.5.9的parent没有对应的1.5.9的actuator，就会报红色波浪线
+>>>> 但是只要下载到了替代版本，大部分波浪线并不影响运行
 -------------------
 ## 源码地址：
 > **1-11章代码地址**
@@ -65,10 +68,21 @@ Spring boot基础上构建，Docker、PaaS上部署，云原生，参照《十�
 * 选型中立：支持使用Eureka、Zookeeper、Consul实现服务发现
 * 组件间解耦
 ### 2.3 Spring Cloud 版本（伦敦地铁站ABC排序）N多组件都有自己的发布版本
-* Angel    -对应- Spring boot 1.2.x
-* Brixton  -对应- Spring boot 1.3.x
+cloud | boot
+------|------
+Angel | 1.2.x
+Brixton | 1.3.x
+Camden | 1.4.x 1.5.x
+Dalston | 1.5.x
+Edgware | 1.5.x
+Finchley | 2.0.x
 > eg：Camden SR3 = 主版本Camden的第三次bug修复  -Spring boot 1.4.x、1.5测试
 >> 每个子组件都有自己的版本号 1.0.3.Release
+
+> 版本不匹配，报错：
+>> Exception in thread "main" java.lang.IllegalArgumentException: Cannot find class [org.springframework.boot.autoconfigure.context.PropertyPlaceholderAutoConfiguration]
+>>> ERROR org.springframework.boot.SpringApplication - Application run failed
+java.lang.NoSuchMethodError: org.springframework.boot.builder.SpringApplicationBuilder.<init>([Ljava/lang/Object;)V
 ## 三、用Cloud实战微服务
 ### 3.1 技术基础、版本方案
 - [x] JAVA、Groovy、Scala语言均可
@@ -532,7 +546,7 @@ http://localhost:8010/health    // "UP"
 - [x] [服务熔断、降级、限流(上文讲了)、异步RPC(就是并发调用省时间)](https://blog.csdn.net/fanrenxiang/article/details/78443774)
 - [x] [分布式系统延迟和容错框架Hystrix](https://blog.csdn.net/fanrenxiang/article/details/78443799)
 #### 7.2.5 Feign 使用 Hystrix
-> 项目classpath有Hystrix，则Feign所有方法都自动被包裹，感谢SpringCloud
+> 项目classpath有Hystrix，则Feign所有方法都自动被包裹，感谢SpringCloud。如果不需要，参照7.2.5.3
 ##### 7.2.5.1 Feign 使用 Hystrix 的回退方法
 ```
 改写[6.2消费者feign]
@@ -545,8 +559,485 @@ http://localhost:8010/health    // "UP"
 停止[4.5-user]
 访问 http://localhost:8010/user/1
 ```
+##### 7.2.5.2 通过 Fallback Factory 检查回退原因
+```
+改写[6.2消费者feign]
+编写回退工厂类，继承自 回退工厂 接口（其实也是一层外包装）
+@FeignClient 里面加上 fallbackFactory 属性,指定 回退工厂 类
 
+何处打印[cause]仍旧存在疑问......
 
+验证：
+[4.4-eureka] + [4.5-user] + [7.2.5.2]
+访问 http://localhost:8010/user/1
+停止[4.5-user]
+访问 http://localhost:8010/user/1
+[7.2.5.2]应该打印回退原因
+
+拓展：
+可以对[cause]进行 instanceOf 判断，进一步业务区分
+```
+##### 7.2.5.3 Feign 拒绝 Hystrix 的自动包裹
+*  单独禁用
+```
+1、定义配置类
+@Configuration
+public class FeignDisableHystrixConfiguration {
+    @Bean
+    @Scope("prototype") // 多实例
+    public Feign.Builder feignBuilder(){
+        return Feign.builder();
+    }
+}
+2、@FeignClient 里面加上 configuration 属性,指定该 配置 类
+```
+* 全局禁用
+```
+<application.yml>
+feign.hystrix.enable = false
+```
+### 7.3 Hystrix 的监控
+* Hystrix & HystrixObservableCommand 在执行时，会生成 执行结果 & 运行指标
+> 如：请求数、成功数...
+* 通过 Hystrix 的模块：hystrix-metrics-event-stream 向外披露
+> 格式：text/event-stream
+* 项目添加 actuator 就可使用/hystrix.stream端点获得Hystrix的监控信息了
+> 如：7.2.2 已经支持
+```
+验证：
+[4.4-eureka] + [4.5-user] + [7.2.2]
+访问 http://localhost:8010/hystrix.stream 空白/转圈监听
+访问 http://localhost:8010/user/1
+访问 http://localhost:8010/hystrix.stream 有了
+```
+* Feign 项目里 的 hystrix 监控
+```
+改造[7.2.5.1]
+1、需要显式引入 spring-cloud-starter-hystrix 依赖
+2、启动类上添加 @EnableCircuitBreaker
+
+验证：
+[4.4-eureka] + [4.5-user] + [7.3]
+访问 http://localhost:8010/hystrix.stream 空白/转圈监听
+访问 http://localhost:8010/user/1
+访问 http://localhost:8010/hystrix.stream 有了，但是数据可读性太差，请看下文
+```
+### 7.4 使用 Hystrix Dashboard 可视化监控数据
+```
+创建[7.4]（本章使用1.5.9-parent，否则启动报缺失class...）
+1、引入hystrix-dashboard依赖
+
+验证：
+启动[7.4]
+访问 http://localhost:8030/hystrix 就看到面板了
+启动[4.4-eureka] + [4.5-user] + [7.3]
+在面板URL输入 http://localhost:8010/hystrix.stream
+在面板Title输入 随意
+点击 {monitor stream}
+访问 http://localhost:8010/user/1 监控面板就有显示了!!
+```
+> 其实咱也可以尝试把 Hystrix Dashboard 注册到 Eureka 上，更方便的管理
+### 7.5 使用 Turbine 聚合监控数据
+#### 7.5.1 Turbine 简介
+> 就是把多个微服务的 /hystrix.stream 聚集成一个 /turbine.stream
+#### 7.5.2 Turbine 动手
+```
+创建[7.5.2]
+1、引入 spring-cloud-starter-netflix-turbine 依赖
+2、启动类 @EnableTurbine
+3、application.yml 指定要聚合的微服务名称：[4.5消费者]、[7.3消费者]（改下端口、名称防止撞车）
+
+验证：
+启动[4.4-eureka] + [4.5-user] + [7.2.2] + [7.3] + [[7.5.2-turbine]] + [7.4-dashboard]
+访问 http://localhost:8010/user/1 让[7.2.2]产生监视数据
+访问 http://localhost:8020/user/1 让[7.3]产生监视数据
+打开 http://localhost:8030/hystrix.stream 看板首页(路径省略.stream也可以)
+在面板URL输入 http://localhost:8031/turbine.stream 看板指向[[7.5.2]]
+在面板Title输入 随意
+点击 {monitor stream}
+ 监控面板就有显示了!!
+```
+#### 7.5.3 使用消息中间件 收集数据
+> 微服务 与 turbine 不在同一网段/网络不通时
+>> 微服务 将消息发给 中间件
+>>> 中间件 再供给 turbine 消费
+##### 7.5.3.1 安装 RabbitMQ
+* 1、安装依赖：[Erlang/OTP 19.2](http://www.erlang.org/downloads)
+* 2、安装RabbitMQ服务：[RabbitMQ Server 3.6.6](https://www.rabbitmq.com/releases/rabbitmq-server/)(http://www.rabbitmq.com/install-windows.html)
+* 3、开启可视管理：安装路径/sbin>>rabbitmq-plugins enable rabbitmq_management，访问http://localhost:15672，guest/guest
+##### 7.5.3.2 微服务 -- RabbitMQ
+```
+改造[7.2.2-movie]（本章使用1.4.3-parent）
+1、引入 spring-cloud-[netflix-hystrix]-stream 依赖
+2、引入 spring-cloud-starter-stream-rabbit 依赖
+3、application.yml 指明消息中间件地址
+```
+##### 7.5.3.3 RabbitMQ -- turbine
+```
+改造[7.5.2-turbine]
+0、去除原 turbine 依赖，修改启动类 @EnableTurbine --> @EnableTurbineStream
+1、引入 spring-cloud-[starter-turbine]-stream 依赖
+2、引入 spring-cloud-starter-stream-rabbit 依赖
+3、application.yml 配置服务端口8031，指明消息中间件地址，去除原来的turbine配置
+```
+Turbine改造完成...
+```
+验证：
+启动[4.4-eureka] + [4.5-user] + [7.5.3.2] + [7.5.3.3]
+访问 http://localhost:8010/user/1 可正常获得结果
+访问 http://localhost:8031 可发现turbine能持续不断的显示监控数据
+```
+
+## 八、使用 Zuul 构建微服务网关
+### 8.1 为什么要涉及网关
+* 客户端一个业务下来，要访问多个微服务，客户端也累
+* 跨域问题
+* 认证复杂：每个微服务都需要认证
+* 微服务迭代：分久必合合久必分，让客户端抓狂
+* 某些微服务可能使用防火墙等
+> 方案：【客户端】----1【网关】n----【微服务】
+* 易于监控
+* 易于认证
+* 减少交互次数
+### 8.2 [Zuul](https://github.com/Netflix/zuul) 简介
+Zuul 又是 Netflix 的开源项目，核心是“过滤器”
+[学习地址](https://github.com/Netflix/zuul/wiki/How-We-Use-Zuul-At-Netflix)
+* 身份认证 & 安全
+* 审查 & 监控：边缘位置追踪有意义的数据，精确的生产视图
+* 动态路由：定向后端集群
+* 压力测试：可以通过控制指定集群的流量来实现
+* 负载分配：同上
+* 静态响应处理：在边缘位置直接建立部分响应，从而避免转发到内部集群
+* 多区域弹性：跨越AWS region进行请求路由，旨在实现ELB(弹性负载均衡)，让系统边缘更贴近系统使用者
+> Cloud 整合 Zuul 默认的使用 http 客户端：Apache http client
+>> 使用 RESTClient：ribbon.restclient.enable = true
+>>> 使用 okhttp3.OkHttpClient：ribbon.okhttp.enable = true
+### 8.3 编写 Zuul 网关
+```
+创建[8.3]
+添加依赖：spring-cloud-starter-netflix-zuul
+添加依赖：spring-cloud-starter-netflix-eureka-client
+启动类 @EnableZuulProxy
+配置 application.yml 8040
+
+验证：
+启动[4.4-eureka] + [4.5-user] + [5.2-movie] + [8.3]
+访问 http://localhost:8040/microservice-consumer-movie/user/1 访问消费者（可能一时间找不到注册的服务，等下再试试）
+访问 http://localhost:8040/microservice-provider-user/1       访问生产者
+http://localhost:8761/
+
+验证 负载均衡：
+关掉[4.5-user]，启动多个[5.2-user]多实例
+多次访问 http://localhost:8040/microservice-provider-user/1  会发现Zuul内置Ribbon负载均衡
+
+验证 容错：
+启动[4.4-eureka] + [4.5-user] + [5.2-movie] + [8.3] + [7.4-hystrix-dashboard]
+访问 http://localhost:8040/microservice-consumer-movie/user/1 访问消费者
+访问 http://localhost:8030/hystrix 的URL输入 http://localhost:8040/hystrix.stream 说明支持了hystrix
+```
+
+### 8.4 Zuul的路由端点
+> 8.3 spring-cloud-starter-netflix-zuul（@EnableZuulProxy） 其实还集成了 actuator （/routes端点）
+>> GET 就是查询 POST 就是手动强刷
+```
+验证：
+启动[4.4-eureka] + [4.5-user] + [5.2-movie] + [8.3]
+访问 http://localhost:8040/routes 查看 路径-微服务 映射
+```
+### 8.5 路由配置详解
+> 只想让 Zuul 代理部分微服务，URL 精确控制
+* 1、指定路径
+```
+zuul:
+  routes:
+    microservice-provider-user: /user/**
+```
+* 2、忽略某些微服务
+```
+zuul:
+  ignored-services: microservice-provider-user,microservice-consumer-movie
+```
+* 3、忽略所有，只路由指定微服务
+```
+zuul:
+  ignored-services: '*'   # 使用'*'可忽略所有微服务
+  routes:
+    microservice-provider-user: /user/**
+```
+* 4、同时指定微服务的serviceId和对应路径
+```
+zuul:
+  routes:
+    user-route:                   # 该配置方式中，user-route只是给路由一个名称，可以任意起名。
+      service-id: microservice-provider-user
+      path: /user/**              # service-id对应的路径
+```
+* 5、同时指定path和url
+```
+zuul:
+  routes:
+    user-route:                   # 该配置方式中，user-route只是给路由一个名称，可以任意起名。
+      url: http://localhost:8000/ # 指定的url
+      path: /user/**              # url对应的路径。
+```
+> 将/user/**直接映射到 localhost:8000/**下
+>> 代价：不会通过HystrixCommand执行，换言之不支持Hystrix容错，同时不支持Ribbon负载均衡。看6
+* 6、同时指定path和URL，并且不破坏Zuul的Hystrix、Ribbon特性。
+```
+zuul:
+  routes:
+    user-route:
+      path: /user/**
+      service-id: microservice-provider-user
+ribbon:
+  eureka:
+    enabled: false    # 禁用掉ribbon的eureka使用。详见：http://cloud.spring.io/spring-cloud-static/Camden.SR3/#_example_disable_eureka_use_in_ribbon
+microservice-provider-user:
+  ribbon:
+    listOfServers: localhost:8000,localhost:8001
+```
+* 7、正则表达式--路由匹配规则
+```
+@Bean
+public PatternServiceRouteMapper serviceRouteMapper() {
+    // （微服务正则，路由正则）
+    return new PatternServiceRouteMapper("(?<name>^.+)-(?<version>v.+$)", "${version}/${name}");
+}
+```
+> 此配置可实现将诸如：microservice-provider-user-v1这个微服务映射到/v1/microservice-provider-user/**这个路径
+* 8.1、路由前缀
+```
+zuul:
+  prefix: /api
+  strip-prefix: false
+  routes:
+    microservice-provider-user: /user/**
+logging:
+  level:
+    com.netflix: DEBUG
+```
+> 访问Zuul的/api/microservice-provider-user/1路径，请求将会被转发到microservice-provider-user的/api/1，可查看日志打印，有助于理解。
+* 8.2、路由前缀
+```
+zuul:
+  routes:
+    microservice-provider-user: 
+      path: /user/**
+      strip-prefix: false
+logging:
+  level:
+    com.netflix: DEBUG
+```
+> 访问Zuul的/user/1路径，请求将会被转发到microservice-provider-user的/user/1，可查看日志打印，有助于理解。
+>> 可以查阅：https://github.com/spring-cloud/spring-cloud-netflix/issues/1365
+>>> 可以查阅：https://github.com/spring-cloud/spring-cloud-netflix/issues/1514
+* 9、忽略某些路径（更细粒度）
+```
+zuul:
+  ignoredPatterns: /**/admin/**   # 忽略所有包括/admin/的路径
+  routes:
+    microservice-provider-user: /user/**
+```
+* 10、本地转发（略）
+```
+zuul:
+  routes:
+    route-name:
+      path: /path-a/**
+      url: forward:/path-b
+```
+> 如此可将 microservice-provider-user 服务映射到 /user/**，但会忽略此为服务中包含/admin/的路径
+### 8.6 Zuul的安全 & Header
+#### 8.6.1 设置敏感 Header
+* 系统中服务共享 header
+* 防止header外泄，需要设置敏感header
+```
+// 为单个微服务指定（优先级更高）zuul.routes.*.sensitive-headers:
+zuul:
+  routes:
+    microservice-provider-user:
+      path: /users/**
+      sensitive-headers: Cookie,Set-Cookie,Authorization
+      url: https://downstream
+// 全局设置
+zuul:
+  sensitive-headers: Cookie,Set-Cookie,Authorization # 其实这仨是默认的
+```
+#### 8.6.2 忽略 Header
+* 丢弃一些 Header，阻止其传播到其他微服务中
+* classpath中若存在有Spring Security，ignore-headers默认不为空，便会阻止如下header的传播。
+> Pragma、Cache-Control、X-Frame-Options、X-Content-Type-Options、X-XSS-Protection、Expires
+>> 可通过zuul.ignore-headers:false来使其传播
+>>> 可以查阅：https://github.com/spring-cloud/spring-cloud-netflix/issues/1487
+>>>> 单元测试...略
+```
+zuul:
+  ignore-headers: Header1,, Header2
+```
+### 8.7 使用 Zuul 上传文件
+* 小于 1M 可直接上传
+* 大于 10M  需要为上传路径添加 /zuul/ 前缀，或者使用zuul.servlet-path自定义前缀。如使用ribbon，则需要改大超时 阈值
+```
+# 上传大文件得将超时时间设置长一些，否则会报超时异常。以下几行超时设置来自http://cloud.spring.io/spring-cloud-static/Camden.SR3/#_uploading_files_through_zuul
+hystrix.command.default.execution.isolation.thread.timeoutInMilliseconds: 60000
+ribbon:
+  ConnectTimeout: 3000
+  ReadTimeout: 60000
+```
+> 一般都自带 [下载curl.zip](https://curl.haxx.se/download.html),解压添加Path/curl.exe放在System32下也可以
+>> PowerShell 无法识别 -参数，建议参照大象》CMD.exe --- PowerShell，使用原生 CMD.exe测试
+```
+创建[8.7-upload]
+普通，注册到Eureka
+application.yml配置http文件传输大小
+编写HTML页面（支持访问 localhost:8050）未用到...
+
+验证：
+启动[4.4-eureka] + [8.7-upload] + [8.3-zuul]
+直接上传至8.7微服务：curl -F "file=@small.file" localhost:8050/upload  -- OK
+上传小文件至zuul网关：curl -v -H "Transfer-Encoding=chunked" -F "file=@small.file" localhost:8040/microservice-file-upload/upload  -- OK
+上传大文件至zuul网关：curl -v -H "Transfer-Encoding=chunked" -F "file=@large.file" localhost:8040/microservice-file-upload/upload  -- 不OK,500提示size超限
+上传zuul（添加前缀）：curl -v -H "Transfer-Encoding=chunked" -F "file=@large.file" localhost:8040/zuul/microservice-file-upload/upload  -- 若提示zuul.hystrix超时，zuul需要添加前面超时配置即可（尝试依旧超时，不知是否文件太大）
+```
+### 8.8 Zuul 过滤器
+> 过滤器才是zuul的核心
+#### 8.8.1 过滤器类型 & 请求生命周期
+类型|生命周期|用途
+---|-------|---
+PRE|【请求】-x-【路由】-【微服务】|请求被路由之前调用，身份验证、集群中选择请求的微服务、记录调试信息
+ROUTING|【请求】-【路由】-x-【微服务】|将请求路由至微服务，用于构建发送给微服务的请求，使用Apache HTTPClient/Netflix Ribbon
+POST|【请求】-【路由】-【微服务】-x|在路由到达微服务之后执行，为Response添加标准header，收集统计指标，传递Response给客户
+ERROR|-|其他阶段发生错误时执行
+自定义|-|如：拦截请求在zuul中直接处理并返回
+
+一个请求的生命周期：
+![8.8.1.png](imgs/8.8.1.png)
+
+#### 8.8.2 编写 Zuul 过滤器
+```
+复制[8.3-zuul]
+编写自定义过滤器 继承 ZuulFilter
+修改启动类：生效自定义过滤器
+
+验证：
+启动[4..4-eureka] + [4.5-user] + [8.8.2]
+访问：http://localhost:8040/microservice-provider-user/1 [8.8.2]自定义的过滤器打印send GET request to http://localhost:8040/microservice-provider-user/1
+```
+#### 8.8.3 禁用 zuul 过滤器
+> Cloud 默认为 zuul 编写了几个过滤器：DebugFilter、FormBodyWrapperFilter、PreDecorationFilter...
+>> 位于： spring-cloud-netflix-core.jar包下的(org.springframework.cloud.netflix.zuul.filters)
+>>> 如何禁用：zuul.<ClassName>.<filterType>.disable=true
+>>>> 例如禁用上文过滤器：zuul.PreRequestLogFilter.pre.disable=true
+### 8.9 zuul 的 容错 & 回退
+```
+验证：
+启动[4..4-eureka]8671 + [4.5-user]8000 + [8.3-zuul]8040 + [7.4-hystrix-dashboard]8030
+访问：http://localhost:8040/microservice-provider-user/1 正常获得结果
+访问：http://localhost:8040/hystrix.stream 正常获得hystrix监控数据
+访问：http://localhost:8030/hystrix 输入地址http://localhost:8040/hystrix.stream
+关闭 [4.5-user]8000
+访问：http://localhost:8040/microservice-provider-user/1 不优雅！
+```
+> 网关 zuul 监控的粒度是 微服务，而不是API，如果关闭4.5，并不能优雅的显示 default 用户
+```
+复制[8.3-zuul]8040---[8.9]
+编写zuul回退类 实现 ZuulFallBackProvider
+
+重复验证：
+启动[4..4-eureka]8671 + [4.5-user]8000 + [8.9-zuul-fallback]8040 + [7.4-hystrix-dashboard]8030
+访问：http://localhost:8040/microservice-provider-user/1 正常获得结果
+访问：http://localhost:8040/hystrix.stream 正常获得hystrix监控数据
+访问：http://localhost:8030/hystrix 输入地址http://localhost:8040/hystrix.stream
+关闭 [4.5-user]8000
+访问：http://localhost:8040/microservice-provider-user/1 变得优雅！
+```
+### 8.10 Zuul 的 高可用
+> 作为网关，必须高可用，避免单点故障
+#### 8.10.1 情况1：Zuul Client 注册到了 Eureka Server上
+> 很简单，多启动几个 Zuul Client 即可
+#### 8.10.2 情况2：Zuul Client 没注册到 Eureka Server上
+> 比如 zuul 是一个 APP
+>> 只能在 zuul 和 请求方 之间再设立一个负载均衡器，如：Nginx、HAProxy、F5 等
+### 8.11 使用 Sidercar（整合了zuul） 整合 非JVM微服务
+> 4.9 非JVM 也可以操作 Eureka 的 REST 端点
+>> Sidecar灵感来自于 Netflix Prana
+#### 8.11.1 编写 Node.js 服务
+```
+创建一个简单的 [8.11.1-node-service] (只要是 非JVM工程都可)
+使用命令行启动：node node-service.js
+测试：http://localhost:8060/health.json
+测试：http://localhost:8060/
+```
+#### 8.11.2 编写 Sidecar
+```
+创建[8.11.2-Sidecar]
+依赖：spring-cloud-netflix-sidecar
+启动类：@EnableSidecar
+配置：拉手 [8.11.1]
+
+验证：
+启动 [8.11.1-node-service] + [4.4-Eureka] + [4.5-user]8000 + [8.11.2-Sidecar]8070
+访问 http://localhost:8070/microservice-provider-user/1   返回张三
+既然 Sidecar 可以访问 user 微服务，那么 Sidecar 拉手的非JVM，一样可以访问Eureka上的微服务。。。
+启动 [8.11.2.1-Sidecar-client-ribbon]8071
+访问 http://localhost:8071/test   就被转接到了 非JVM 服务上
+```
+#### 8.11.3 Sidecar 端点
+* / 返回一个测试页面，展示常用端点
+* /hosts/{serviceId} 指定为服务在Eureka上的实例列表
+* /ping 返回 "OK"
+* /{serviceId} 因为整合了zuul，所以可以直接转发请求到指定微服务
+#### 8.11.4 Sidecar 与 Node.js 分离部署
+方法一
+```
+eureka:
+  instance:
+    hostname: 非JVM微服务的hostname
+```
+方法二（Netflix1.3.0之后）
+```
+sidecar:
+  hostname: 非JVM微服务的hostname
+  ip-address: 非JVM微服务的IP地址
+```
+> 可以查阅：https://github.com/spring-cloud/spring-cloud-netflix/issues/981
+#### 8.11.5 Sidecar 原理
+* 访问 http://localhost:8761/eureka/apps/microservice-sidecar-node-service
+> 可以看到 sidecar帮node-service将8060注册到了 eureka，还有homePage
+* @EnableSidecar 整合了 @EnableZuulProxy
+> 可以访问 http://localhost:8070/routes（可能需要配置 management.security.enabled : false）
+* 被拉手的node-service挂了，http://localhost:8070/health就会显示down
+### 8.12 使用 Zuul 聚合微服务
+> 客户只发送一次请求，zuul 多次请求自己手上的微服务，然后一次性返回
+```
+复制[8.3-zuul]----------------[8.12-zuul-aggregation]
+启动类：添加RestTemplate
+创建 User 实体类
+创建 聚合服务 AggregationService
+创建 控制层 AggregationController（涉及 RxJava-异步链式库-观察者模式的应用）
+
+验证：
+启动 [4.4-Eureka] + [4.5-user]8000 + [4.5-movie]8010 + [8.12-zuul-aggregation]8040
+（微服务聚合）访问 http://localhost:8040/aggregate/1    依次调用了movie、user
+（Hystrix容错）停止movie、user，再访问 http://localhost:8040/aggregate/1 实现了容错回退
+```
+
+## 9 Spring Cloud Config 统一管理配置
+### 9.1 为什么
+微服务架构中，常有如下需求：
+* 统一管理配置文件：适应繁多的微服务
+* 适应不同环境：开发环境、测试环境、生产环境
+* 运行期间动态调整：根据实际load调整一些阈值、连接池，且不影响微服务运行
+* 修改后自动生效
+### 9.2 [Spring Cloud Config](https://github.com/spring-cloud/spring-cloud-config)
+【Config Server】【Config Client】都实现了Spring环境 与 Property Source的抽象映射（就是为Spring打造的）
+* Config Server：可横向扩展、集中式的配置服务器，默认Git存储配置内容
+* Config Client：用于操作Server上的配置
+![9.2.png](imgs/9.2.png)
+> 每个微服务启动时会请求Server获取配置，并缓存起来哦
+### 9.3 编写 Config Server
+作者在gitee上写了几个配置文件，此处我写在【gitee-config-repo】文件夹下，并上传至GitHub。
+为测试版本控制，在master下建立 config-label-v2.0 分支，在该分支下，将配置文件中的1.0改为2.0
 
 
 

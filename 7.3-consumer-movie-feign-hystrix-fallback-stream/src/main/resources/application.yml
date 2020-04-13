@@ -1,0 +1,26 @@
+#server:
+#  port: 8010
+#
+#user:
+#  userServiceUrl: http://localhost:8000/
+#
+#spring:
+#  application:
+#    name: microservice-consumer-movie # 4.5 注册到Eureka Server显示的名称
+
+# ------------- start -------------
+# --- 为配合7.5.2聚合监控做出的修改 ---
+server:
+  port: 8020
+spring:
+  application:
+    name: microservice-consumer-movie-feign-hystrix-fallback-stream
+# -------------- end --------------
+
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/ # ,http://peer2:8762/eureka/
+  instance:
+    prefer-ip-address: true # 注册自己的ip到Eureka,否则是自己的OS-hostname
+

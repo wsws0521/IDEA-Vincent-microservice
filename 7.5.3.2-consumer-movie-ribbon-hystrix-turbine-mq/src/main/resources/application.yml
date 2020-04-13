@@ -1,0 +1,22 @@
+server:
+  port: 8010
+
+user:
+  userServiceUrl: http://localhost:8000/
+
+spring:
+  application:
+    name: microservice-consumer-movie # 4.5 注册到Eureka Server显示的名称
+  # 7.5.3.2 微服务监控信息 发给 消息中间件
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    prefer-ip-address: true # 注册自己的ip到Eureka,否则是自己的OS-hostname
