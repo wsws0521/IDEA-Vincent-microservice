@@ -1030,7 +1030,7 @@ sidecar:
 * 运行期间动态调整：根据实际load调整一些阈值、连接池，且不影响微服务运行
 * 修改后自动生效
 ### 9.2 [Spring Cloud Config](https://github.com/spring-cloud/spring-cloud-config)
-【Config Server】【Config Client】都实现了Spring环境 与 Property Source的抽象映射（就是为Spring打造的）
+【Config Server】【Config Client】都实现了Spring环境 与 Property Source 的抽象映射（就是为Spring打造的）
 * Config Server：可横向扩展、集中式的配置服务器，默认Git存储配置内容
 * Config Client：用于操作Server上的配置
 ![9.2.png](imgs/9.2.png)
@@ -1038,9 +1038,101 @@ sidecar:
 ### 9.3 编写 Config Server
 作者在gitee上写了几个配置文件，此处我写在【gitee-config-repo】文件夹下，并上传至GitHub。
 为测试版本控制，在master下建立 config-label-v2.0 分支，在该分支下，将配置文件中的1.0改为2.0
+```
+创建[9.3-config-server]
+1-依赖：spring-cloud-config-server
+2-启动类：@EnableConfigServer
+3-配置：Git仓库/账号/密码（在国内还是建议用码云）
 
+准备4种配置文件：
+microservice-foo    （取这种名字的配置文件，就认为微服务名称是 microservice-foo，即覆盖掉上文3-中配置的微服务名称）
+microservice-foo-dev
+microservice-foo-production
+microservice-foo-test
+在
+master/                     下；
+master/config-label-v2.0/   分之下修改成2.0；
 
+验证：
+启动 [9.3-config-server]8080
+http://localhost:8080/microservice-foo/dev                              -- 可以获取 master下 foo、foo-dev 配置文件名|路径标识 列表
+http://localhost:8080/microservice-foo/dev/config-label-v2.0            -- 可以获取 master/config-label-v2.0下 foo、foo-dev 配置文件名列表
+http://localhost:8080/microservice-foo-dev.properties                   -- 直接获取 master下 指定配置文件的内容：profile: dev-1.0
+http://localhost:8080/config-label-v2.0/microservice-foo-dev.properties -- 直接获取 master/config-label-v2.0下 指定配置文件的内容：profile: dev-2.0
+```
+### 9.4 编写 Config Client
+```
+创建[9.4-config-client]
+1-依赖：spring-cloud-starter-config
+2-配置文件 bootstrap（主程序的“引导上下文”动作会加载名为bootstrap.*的文件内容，优先级更高，必须配置于此，否则就默认 config-server 是 localhost:8888。题外话：禁用引导过程：spring.cloud.bootstrap.enable=false）
+指定 config-server
 
+验证：
+启动 [9.3-config-server]8080 + [9.4-config-client]8081
+http://localhost:8081/profile                             -- 可以获取到相应配置文件（即使现在关掉9.3也没关系，因为配置文件被缓存起来了）
+```
+### 9.5 Config Server 的Git仓库配置详解
+spring.cloud.config.server.git.uri
+* 占位符支持：{application} {profile} {label}
+> https://github.com/wsws0521/IDEA-Vincent-microservice.git
+>> https://github.com/wsws0521/{application}    -- 即可支持一个应用/profile对应一个Git仓库
+* 模式匹配：{application}/{profile}
+> spring.cloud.config.server.git.repos.simple: https://         --simple仓库地址，只匹配所有配置文件中名为simple的应用程序
+>> spring.cloud.config.server.git.repos.special.pattern: special*/dev*, *special*/dev*
+>> spring.cloud.config.server.git.repos.special.uri: https://   --special仓库地址
+>>> spring.cloud.config.server.git.repos.local.pattern: local*
+>>> spring.cloud.config.server.git.repos.local.uri: file:/home/ --local仓库地址，匹配所有配置文件中以local开头的应用程序
+* 搜索目录：（同样支持占位符）
+> spring.cloud.config.server.git.search-paths: foo,bar*     --搜索foo子目录以及bar开头的子目录
+* 启动时就去访问Git加载配置（默认都是第一次被client请求才去clone git仓库）
+> spring.cloud.config.server.git.uri:
+> spring.cloud.config.server.git.repos.team-a.pattern: microservice-*
+> spring.cloud.config.server.git.repos.team-a.clone-on-start: true
+> spring.cloud.config.server.git.repos.team-a.uri:
+>> team-a 可以替换为 *，也可以直接全局 git.clone-on-start: true
+>>> 启动就去校验 Git 仓库，蛮好的
+
+### 9.6 Config Server 的健康状况指示器
+自带：http://localhost:8080/health -- {"status":"UP"} -- 可用来校验配的 EnvironmentRepository 可否访问
+
+> 请求 EnvironmentRepository 时默认使用的：{application}=app, {profile}=default, {label}=master
+>> 当然也可以配置
+>>> spring.cloud.config.server.health.repositories.a-foo.label: config-label-v2.0
+>>> spring.cloud.config.server.health.repositories.a-foo.name: microservice-foo
+>>> spring.cloud.config.server.health.repositories.a-foo.profiles: dev
+
+禁用：spring.cloud.config.server.health.enable: false
+```
+复制[9.3]----[9.6-config-server-health]-----只是加了health配置而已
+```
+### 9.7 配置内容的加解密（例如DB用户名密码，不想明文显示）
+#### 9.7.1 安装 JCE （Java 密码学 扩展）
+[下载Java8JCE](http://www.oracle.com/technetwork/java/javase/downloads/jce8-download-2133166.html)
+Config Server 的加解密依赖于此，安装 Java8JCE 就是替换 JDK/jre/lib/security/下面的两个jar
+#### 9.7.2 Config Server 的加解密端点
+```
+curl $CONFIG_SERVER_URL/encrypt -d 想要加密的明文
+curl $CONFIG_SERVER_URL/decrypt -d 想要解密的密文
+```
+#### 9.7.3 对称加密
+```
+复制[9.3]----[9.7.2-config-server-encryption]
+必须在 bootstrap 里设置对称秘钥（主程序的“引导上下文”动作会加载名为bootstrap.*的文件内容，优先级更高。题外话：禁用引导过程：spring.cloud.bootstrap.enable=false）
+
+验证：
+启动 [9.7.2-config-server-encryption]8080
+访问：curl localhost:8080/encrypt -d vincentPWD    //即可得到密文
+访问：curl localhost:8080/decrypt -d 密文           //即可得到明文
+```
+#### 9.7.4 存储加密的内容
+```
+在gitee-config-repo/添加配置文件encryption.yml，将密文加入
+push到Git远端！！！
+
+验证：
+启动[9.7.3]8080
+访问：localhost:8080/encryption-default.yml
+```
 
 
 

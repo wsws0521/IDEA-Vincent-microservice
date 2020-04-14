@@ -1,0 +1,2 @@
+encrypt:
+  key: foo  # 9.7.2 对称秘钥

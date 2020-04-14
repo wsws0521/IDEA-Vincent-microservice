@@ -1,0 +1,5 @@
+# 9.7.4 测试一下
+spring:
+  datasource:
+    username: vincent
+    password: '{cipher}cea6513969fbada5f02251ebdc56c1077169e7f853df84b167cd2b56b16ca4ed'  # 在*.properties文件中则不能用单引号
