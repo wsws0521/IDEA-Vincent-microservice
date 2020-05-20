@@ -1,0 +1,24 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: microservice-config-server
+  cloud:
+    config:
+      server:
+        git:
+          uri: https://github.com/wsws0521/IDEA-Vincent-microservice.git    # 配置Git仓库的地址（灵感来自：VCS/checkout from version control/登录Github选择目录）
+          search-paths: gitee-config-repo
+          username:                                                         # Git仓库的账号（IDEA配置了SSH，不需要账号密码了）
+          password:                                                         # Git仓库的密码（IDEA配置了SSH，不需要账号密码了）
+#logging:
+#  level:
+#    org.springframework.cloud: DEBUG  # 可以看到请求Git仓库的细节
+#    org.springframework.boot: DEBUG
+security:
+  basic:
+    enabled: true
+  user:
+    name: user
+    password: 123456

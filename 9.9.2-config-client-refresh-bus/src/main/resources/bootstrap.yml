@@ -4,8 +4,10 @@ spring:
   cloud:
     config:
       uri: http://localhost:8080/
-#      uri: http://user:123456@localhost:8080/  # 9.11 连接带BASIC认证的config-server
-#      username: user                           # 9.11 连接带BASIC认证的config-server
-#      password: 123456                         # 9.11 连接带BASIC认证的config-server
       profile: dev            # profile对应config server所获取的配置文件中的{profile}
       label: master           # 指定Git仓库的分支，对应config server所获取的配置文件的{label}
+  rabbitmq:                   # 9.9.2 Bus
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest

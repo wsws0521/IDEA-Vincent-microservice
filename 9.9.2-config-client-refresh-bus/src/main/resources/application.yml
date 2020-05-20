@@ -1,0 +1,15 @@
+management:
+  security:
+    enabled: false    # 否则9.8 POST/refresh会报401无权限
+
+
+---
+spring:
+  profiles: configclient8081
+server:
+  port: 8081
+---
+spring:
+  profiles: configclient8082
+server:
+  port: 8082

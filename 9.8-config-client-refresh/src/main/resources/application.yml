@@ -1,0 +1,6 @@
+server:
+  port: 8081
+
+management:
+  security:
+    enabled: false    # 否则9.8 POST/refresh会报401无权限

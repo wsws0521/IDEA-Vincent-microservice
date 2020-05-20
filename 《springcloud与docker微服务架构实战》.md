@@ -370,10 +370,9 @@ microservice-provider-user:
 多次访问 http://localhost:8010/log-instance，看后台日志打印（均匀分布）
 ```
 ## 六、Feign-----更优雅地调用HTTP API
-### 6.1 Feign简介
+### 6.1 [Feign简介](https://github.com/OpenFeign/feign)
 * Netflix公司开发的声明式、模板化的HTTP客户端（灵感：Retrofit、JAXRS-2.0、WebSocket）
 * SpringCloud加强了Feign，赋予其SpringMVC注解（契约默认SpringMVCContract），集成Ribbon和Eureka....真的香...
-* https://github.com/OpenFeign/feign
 ### 6.2 为消费者整合Feign
 ```
 改造[4.5-movie消费者]
@@ -510,7 +509,7 @@ public class UserController {
 返回了-1User
 ```
 > 进入‘回退方法’并不代表断路器打开，想知道断路器状态？看下面
-#### 7.2.3 通用方式整合Hystrix
+#### 7.2.3 断路器状态监控&深入理解
 > 因为Eureka依赖actuator
 ```
 http://localhost:8010/health
@@ -953,11 +952,13 @@ ERROR|-|其他阶段发生错误时执行
 ```
 ### 8.10 Zuul 的 高可用
 > 作为网关，必须高可用，避免单点故障
-#### 8.10.1 情况1：Zuul Client 注册到了 Eureka Server上
+
+* 情况1：Zuul Client 注册到了 Eureka Server上
 > 很简单，多启动几个 Zuul Client 即可
-#### 8.10.2 情况2：Zuul Client 没注册到 Eureka Server上
+* 情况2：Zuul Client 没注册到 Eureka Server上
 > 比如 zuul 是一个 APP
 >> 只能在 zuul 和 请求方 之间再设立一个负载均衡器，如：Nginx、HAProxy、F5 等
+
 ### 8.11 使用 Sidercar（整合了zuul） 整合 非JVM微服务
 > 4.9 非JVM 也可以操作 Eureka 的 REST 端点
 >> Sidecar灵感来自于 Netflix Prana
@@ -1130,9 +1131,185 @@ curl $CONFIG_SERVER_URL/decrypt -d 想要解密的密文
 push到Git远端！！！
 
 验证：
-启动[9.7.3]8080
-访问：localhost:8080/encryption-default.yml
+启动[9.7.2]8080
+访问：localhost:8080/encryption-default.yml    // 从Github拿下来自动解密，看到明文 spring.cloud.coonfig.server.encrypt.enabled = false 直接返回密文本身
 ```
+#### 9.7.5 非对称加密
+```
+复制[9.3]----[9.7.5-config-server-encryption-rsa]
+生成一个keyStore：
+keytool -genkeypair -alias mytestkey -keyalg RSA -dname "CN=Web Server,OU=Unit,O=Organization,L=City,S=State,C=US" -keypass 123456 -keystore server.jks -storepass 123456
+生成的server.jks放到classpath下面
+application.yml下面指定keyStore
+
+验证：
+启动 [9.7.5-config-server-encryption]8080
+访问：curl localhost:8080/encrypt -d vincentPWD    //即可得到【更复杂的RSA】密文
+访问：curl localhost:8080/decrypt -d 密文           //即可得到明文
+```
+### 9.8 使用/refresh端点手动刷新配置
+```
+复制[9.4]----[9.8-config-client-refresh]
+添加actuator依赖（内含refresh端点）
+Controller添加 @RefreshScope
+application.yml的security置为false，否则没有refresh节点权限
+
+验证：
+启动 [9.3-config-server]8080 + [9.8-config-client-refresh]8081
+访问：localhost:8081/profile
+// 返回https://github.com/wsws0521/IDEA-Vincent-microservice/blob/master/gitee-config-repo/microservice-foo-dev.properties内容
+// 修改内容，再次访问，返回未见修改
+发送[POST]：curl -X POST http://localhost:8081/refresh     // 实现刷新，刷新有变化才有返回内容，否则返回[]
+再次访问：localhost:8081/profile     // 返回刷新后的内容
+```
+### 9.9 使用 Spring Cloud Bus 自动刷新配置
+> Bus  类似分布式的 Actuator  可以广播消息（类似RabbitMQ、kafka的模式）
+>> 所有微服务都和Bus消息总线相连，都有【订阅】
+![9.9.png](imgs/9.9.png)
+#### 9.9.2 实现自动刷新
+```
+安装MQ（参考7.5.3.1），开启服务，http://localhost:15672这是管理界面
+复制[9.8-config-client-refresh]-----[9.9.2-onfig-client-refresh-bus]
+添加依赖：bus-amqp
+bootstrap.yml中指定rabbitmq服务地址
+
+
+验证：
+启动 [9.3-config-server]8080 + [9.9.2-config-client-refresh-bus]8081 + [9.9.2-config-client-refresh-bus]8082
+访问：localhost:8081/profile
+// 返回https://github.com/wsws0521/IDEA-Vincent-microservice/blob/master/gitee-config-repo/microservice-foo-dev.properties内容
+// 修改内容，再次访问，返回未见修改
+发送[POST]：curl -X POST http://localhost:8081/bus/refresh     // 注意路径中带bus，才会去广播修改
+再次访问：localhost:8081/profile     // 返回刷新后的内容
+再次访问：localhost:8082/profile     // 返回刷新后的内容
+```
+> 这其实还是要手动一次，如果想让GitHub主动推送修改，需要再Github/repository/右侧Settings设置添加webhooks指明推送地址
+
+#### 9.9.3 局部刷新
+> bus/refresh?destination=微服务ApplicationContextID（其实默认就是 微服务名：端口）
+> bus/refresh?destination=微服务名：****     刷新指定的 微服务名
+#### 9.9.4 改进：将server添加进bus群
+> 人为POST刷新看来是省不掉，那么最好在server上刷新，让微服务成员保持单一职责
+![9.9.4.png](imgs/9.9.4.png)
+```
+复制[9.3-config-server]-----[9.9.4-config-server-refresh-bus]8080
+添加依赖：bus-amqp
+application.yml中指定rabbitmq服务地址 + 【开启bus追踪，后面可用/trace跟踪查看】 + security：false
+
+验证：
+启动 [9.9.4-config-server-refresh-bus]8080 + [9.9.2-config-client-refresh-bus]8081 + [9.9.2-config-client-refresh-bus]8082
+访问：localhost:8081/profile
+// 返回https://github.com/wsws0521/IDEA-Vincent-microservice/blob/master/gitee-config-repo/microservice-foo-dev.properties内容
+// 修改内容，再次访问，返回未见修改
+发送[POST]：curl -X POST http://localhost:8080/bus/refresh     // 注意在8080server上刷新
+再次访问：localhost:8081/profile     // 返回刷新后的内容
+再次访问：localhost:8082/profile     // 返回刷新后的内容
+```
+#### 9.9.5 跟踪总线事件
+> application.yml中，开启bus追踪，后面可用/trace跟踪查看传播细节
+### 9.10 将config-server，config-client都注册到Eureka
+> config-server
+>> 很简单，直接添加application配置
+```
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/
+```
+> config-client
+>> 修改bootstrap，通过发现方式找到config-server，再将自己注册到Eureka
+```
+spring:
+  application:
+    name: microservice-foo    # 对应config server所获取的配置文件的{application}
+  cloud:
+    config:
+      profile: dev
+      label: master
+      discovery:
+        enabled: true                                  # 表示使用服务发现组件中的Config Server，而不自己指定Config Server的uri，默认false
+        service-id: microservice-config-server-eureka  # 指定Config Server在服务发现中的serviceId，默认是configserver
+
+eureka:
+  client:
+    serviceUrl:
+      defaultZone: http://localhost:8761/eureka/
+```
+### 9.11 为config-server添加用户认证
+允许匿名访问总是不安全的
+此处简单加个 HTTP BASIC 认证
+```
+复制[9.3-config-server]-----[9.11-config-server-authenticating]8080
+添加依赖：security
+application.yml中【开启认证】 + 【用户名密码】
+
+验证：
+启动 [9.11-config-server-authenticating]8080
+访问：localhost:8080 就会弹出认证框
+[9.4-client]的uri: http://localhost:8080/连接串应改成
+方案① uri: http://用户名:密码@localhost:8080/        # curl风格
+方案② 额外添加 username、password属性(优先级更高)
+否则无法启动
+```
+### 9.12 config-server高可用
+#### 9.12.1 Git高可用
+① 官方的Github、Bitbucket、git@osc、Coding等人家本身就实现了高可用，不用担心
+② 自己搭建的Git仓库，如[搭建GitLab高可用](https://about.gitlab.com/high-availability/)
+#### 9.12.2 MQ高可用
+[搭建RabbitMQ高可用](https://www.rabbitmq.com/ha.html)
+#### 9.12.3 config-server高可用
+① 没注册到Eureka
+[servers]------[负载均衡器]-------[clients]
+② 已注册到Eureka
+[servers]------[Eureka]-------[clients]
+
+## 10 微服务跟踪 Sleuth（侦探、警犬）
+### 10.1
+> Actuator/Hystrix 都属于“监控”
+> 现在是要跟踪，为什么要跟踪？
+* 网络！脆弱，资源有限
+* 跟踪！调优，发现瓶颈
+### 10.2 术语
+> 大量借用 Google Dapper、Twitter Zipkin 和 Apache HTrace的设计
+* span（64位ID）
+* trace（64位ID）span组成的树
+* annotation（标注）CS客户端发送时间戳，SR服务端接收时间戳，CS-SR是啥一步了然，SS和CR是啥也能猜到
+### 10.3 整合Sleuth
+```
+复制[01-simple-provider-user]-----[10.3-simple-provider-user-trace]8000
+复制[02-simple-consumer-movie]-----[10.3-simple-consumer-movie-trace]8010
+添加依赖：sleuth
+application.yml中【给自己应用起名字】 + 【开启 DispatcherServlet/Sleuth 日志】
+
+验证：
+启动 [10.3-simple-provider-user-trace]8000
+访问：localhost:8000/1 后台 会打印带ID的日志
+启动[10.3-simple-consumer-movie-trace]8010
+访问：localhost:8010/user/1 后台 会打印带ID的日志
+```
+### 10.4 为Sleuth整合 ELK 日志分析工具（elastic）
+> [安装ELK](https://www.elastic.co/guide/index.html)
+```
+略
+```
+### 10.5 为Sleuth整合 Zipkin 日志分析工具
+> [安装Zipkin](http://zipkin.io/)
+>> Zipkin是Twitter开源的 分布式跟踪系统，擅长收集时序数据，分析微服务架构延时问题，带 不错的 UI
+```
+略
+```
+
+## 11 常见问题&总结（使用时查阅吧）
+### 11.1 Eureka问题
+* 注册慢
+* 注销慢/不注销
+* 如何自定义InstanceID
+* Eureka的UNKNOW问题
+### 11.2 Hystrix/Feign首次请求失败
+### 11.3 Turbine聚合数据不完整
+### 11.4 原生配置
+### 11.5 Cloud问题思路
+
 
 
 

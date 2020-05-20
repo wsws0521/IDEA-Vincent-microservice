@@ -1,0 +1,14 @@
+server:
+  port: 8010
+  
+user:
+  userServiceUrl: http://localhost:8000/
+
+logging:
+  level:
+    root: INFO
+    org.springframework.web.servlet.DispatcherServlet: DEBUG  # 10.3 sleuth
+    org.springframework.cloud.sleuth: DEBUG # 10.3 跟踪请求
+spring:
+  application:
+    name: microservice-consumer-movie-trace
